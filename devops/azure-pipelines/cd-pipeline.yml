@@ -1,0 +1,52 @@
+trigger: none
+pr: none
+
+variables:
+  environment: 'production'
+  iisWebsiteName: 'MoneyWise'
+  iisAppPoolName: 'MoneyWisePool'
+
+stages:
+- stage: Deploy
+  jobs:
+  - deployment: DeployToIIS
+    environment: $(environment)
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+
+          - task: IISWebAppManagementOnMachineGroup@0
+            inputs:
+              IISDeploymentType: 'IISWebsite'
+              ActionIISWebsite: 'CreateOrUpdateWebsite'
+              WebsiteName: $(iisWebsiteName)
+              WebsitePhysicalPath: '%SystemDrive%\inetpub\wwwroot\$(iisWebsiteName)'
+              WebsitePhysicalPathAuth: 'WebsiteWindowsAuth'
+              CreateOrUpdateAppPoolForWebsite: true
+              AppPoolNameForWebsite: $(iisAppPoolName)
+
+          - task: AnsiblePlaybook@0
+            inputs:
+              playbookSource: 'inline'
+              playbook: |
+                - name: Deploy MoneyWise Application
+                  hosts: iis_servers
+                  tasks:
+                    - name: Ensure IIS features are installed
+                      win_feature:
+                        name: Web-Server
+                        state: present
+                        include_management_tools: yes
+                    
+                    - name: Deploy application files
+                      win_copy:
+                        src: "{{ playbook_dir }}/drop/"
+                        dest: "C:\\inetpub\\wwwroot\\$(iisWebsiteName)"
+
+                    - name: Restart IIS
+                      win_service:
+                        name: W3SVC
+                        state: restarted
